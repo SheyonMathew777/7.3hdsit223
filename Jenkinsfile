@@ -59,50 +59,33 @@ pipeline {
     }
 
     stage('Code Quality (SonarQube)') {
+      environment { SCANNER_HOME = tool 'sonar-scanner' }
       steps {
-        sh '''
-          if command -v sonar-scanner >/dev/null 2>&1; then
-            echo "SonarQube scanner found, running analysis..."
-            sonar-scanner -Dsonar.projectKey=sample-node-api -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN || echo "SonarQube analysis failed - continuing pipeline"
-          else
-            echo "SonarQube scanner not found - skipping code quality analysis"
-            echo "To enable: Install SonarQube Scanner plugin and configure sonar-scanner tool"
-          fi
-        '''
+        withSonarQubeEnv('SonarQubeServer') {
+          sh '''
+            $SCANNER_HOME/bin/sonar-scanner \
+              -Dsonar.projectKey=sample-node-api \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_TOKEN
+          '''
+        }
       }
     }
 
     stage('Quality Gate') {
       steps {
-        sh '''
-          if command -v sonar-scanner >/dev/null 2>&1; then
-            echo "Quality Gate check - SonarQube configured"
-            timeout 5m waitForQualityGate abortPipeline: true || echo "Quality Gate check failed - continuing"
-          else
-            echo "Quality Gate check - SonarQube not configured, skipping"
-          fi
-        '''
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
       }
     }
 
     stage('Security (Snyk + Trivy)') {
       steps {
         sh '''
-          echo "Running security scans..."
-          if command -v snyk >/dev/null 2>&1; then
-            echo "Snyk found, running vulnerability scan..."
-            export SNYK_TOKEN=$SNYK_TOKEN
-            snyk test --severity-threshold=medium || echo "Snyk scan failed - continuing"
-          else
-            echo "Snyk not found - skipping vulnerability scan"
-          fi
-          
-          if command -v trivy >/dev/null 2>&1; then
-            echo "Trivy found, running security scan..."
-            trivy fs . --severity HIGH,CRITICAL || echo "Trivy scan failed - continuing"
-          else
-            echo "Trivy not found - skipping security scan"
-          fi
+          export SNYK_TOKEN=$SNYK_TOKEN
+          snyk test --severity-threshold=medium || true
+          trivy fs . --severity HIGH,CRITICAL || true
         '''
       }
       post {

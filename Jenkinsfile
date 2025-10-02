@@ -47,6 +47,7 @@ pipeline {
         // Start the Node.js app for integration tests
         sh '''
           echo "Starting Node.js app for tests..."
+          mkdir -p reports/junit
           nohup npm start > app.log 2>&1 &
           APP_PID=$!
           echo "App started with PID: $APP_PID"
@@ -55,6 +56,8 @@ pipeline {
           ps aux | grep "node server.js" | grep -v grep || echo "App not found in process list"
           echo "Running tests..."
           npm test -- --ci
+          echo "Checking for test reports..."
+          ls -la reports/junit/ || echo "No reports directory found"
           echo "Stopping app..."
           kill $APP_PID 2>/dev/null || echo "App already stopped"
         '''

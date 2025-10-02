@@ -59,6 +59,9 @@ pipeline {
     }
 
 stage('Code Quality (SonarQube)') {
+  when {
+    expression { env.SKIP_SONAR != 'true' }
+  }
   environment {
     SONAR_HOST_URL = 'http://localhost:9000'
     PROJECT_KEY    = 'sample-node-api'

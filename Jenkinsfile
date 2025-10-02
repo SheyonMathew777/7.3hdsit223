@@ -58,58 +58,42 @@ pipeline {
       }
     }
 
-    stage('Code Quality (SonarQube)') {
-      steps {
-        sh '''
-          if command -v sonar-scanner >/dev/null 2>&1; then
-            echo "SonarQube scanner found, running analysis..."
-            sonar-scanner -Dsonar.projectKey=sample-node-api -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN || echo "SonarQube analysis failed - continuing pipeline"
-          else
-            echo "SonarQube scanner not found - skipping code quality analysis"
-            echo "To enable: Install SonarQube Scanner plugin and configure sonar-scanner tool"
-          fi
-        '''
-      }
+stage('Code Quality (SonarQube)') {
+  environment { SCANNER_HOME = tool 'sonar-scanner' }
+  steps {
+    withSonarQubeEnv('SonarQubeServer') {
+      sh '''
+        $SCANNER_HOME/bin/sonar-scanner \
+          -Dsonar.projectKey=sample-node-api \
+          -Dsonar.host.url=$SONAR_HOST_URL \
+          -Dsonar.login=$SONAR_TOKEN
+      '''
     }
+  }
+}
 
-    stage('Quality Gate') {
-      steps {
-        sh '''
-          if command -v sonar-scanner >/dev/null 2>&1; then
-            echo "Quality Gate check - SonarQube configured"
-            echo "Quality Gate would be checked here if SonarQube plugin is installed"
-          else
-            echo "Quality Gate check - SonarQube not configured, skipping"
-            echo "To enable: Install SonarQube Scanner plugin and configure quality gate"
-          fi
-        '''
-      }
-    }
+stage('Quality Gate') {
+  steps { 
+    timeout(time: 5, unit: 'MINUTES') { 
+      waitForQualityGate abortPipeline: true 
+    } 
+  }
+}
 
-    stage('Security (Snyk + Trivy)') {
-      steps {
-        sh '''
-          echo "Running security scans..."
-          if command -v snyk >/dev/null 2>&1; then
-            echo "Snyk found, running vulnerability scan..."
-            export SNYK_TOKEN=$SNYK_TOKEN
-            snyk test --severity-threshold=medium || echo "Snyk scan failed - continuing"
-          else
-            echo "Snyk not found - skipping vulnerability scan"
-          fi
-          
-          if command -v trivy >/dev/null 2>&1; then
-            echo "Trivy found, running security scan..."
-            trivy fs . --severity HIGH,CRITICAL || echo "Trivy scan failed - continuing"
-          else
-            echo "Trivy not found - skipping security scan"
-          fi
-        '''
-      }
-      post {
-        always { archiveArtifacts artifacts: 'snyk*.*, **/trivy*.txt', allowEmptyArchive: true }
-      }
-    }
+stage('Security (Snyk + Trivy)') {
+  steps {
+    sh '''
+      export SNYK_TOKEN=$SNYK_TOKEN
+      snyk test --severity-threshold=medium || true
+      trivy fs . --severity HIGH,CRITICAL || true
+    '''
+  }
+  post { 
+    always { 
+      archiveArtifacts artifacts: 'snyk*.*, **/trivy*.txt', allowEmptyArchive: true 
+    } 
+  }
+}
 
     stage('Deploy: Staging (Compose)') {
       steps {
@@ -132,7 +116,12 @@ pipeline {
     }
 
     stage('Release: Tag & GitHub Release') {
-      when { branch 'main' }
+      when {
+        anyOf {
+          branch 'main'
+          expression { return (env.GIT_BRANCH ?: '') == 'origin/main' }
+        }
+      }
       steps {
         sh '''
           echo "Release stage - creating git tag..."

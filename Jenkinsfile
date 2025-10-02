@@ -39,7 +39,7 @@ pipeline {
         // sh 'echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GH_USER --password-stdin'
         // sh 'docker push $REGISTRY/$APP_NAME:$IMAGE_TAG'
       }
-      post { success { sh 'docker image ls $REGISTRY/$APP_NAME:$IMAGE_TAG' } }
+      post { success { sh 'docker image ls $REGISTRY/$APP_NAME:$IMAGE_TAG || echo "Docker not available - skipping image list"' } }
     }
 
     stage('Test') {

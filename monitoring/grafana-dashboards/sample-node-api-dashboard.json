@@ -1,0 +1,127 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Sample Node API - Monitoring Dashboard",
+    "tags": ["nodejs", "api", "monitoring"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(http_request_duration_seconds_count[5m])",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "95th Percentile Latency",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 Latency"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1.0}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Response Time Distribution",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "HTTP Status Codes",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(http_request_duration_seconds_count{code=~\"2..\"}[5m])",
+            "legendFormat": "2xx"
+          },
+          {
+            "expr": "rate(http_request_duration_seconds_count{code=~\"4..\"}[5m])",
+            "legendFormat": "4xx"
+          },
+          {
+            "expr": "rate(http_request_duration_seconds_count{code=~\"5..\"}[5m])",
+            "legendFormat": "5xx"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Active Alerts",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "ALERTS{alertstate=\"firing\"}",
+            "legendFormat": "{{alertname}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "5s"
+  }
+}
+

@@ -1,0 +1,11 @@
+groups:
+  - name: demo-latency
+    rules:
+      - alert: HighLatency95th
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[2m])) by (le)) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 95th percentile latency"
+          description: "p95 > 1s for 2m"

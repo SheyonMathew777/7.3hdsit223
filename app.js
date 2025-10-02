@@ -5,7 +5,7 @@ const _ = require('lodash');
 const app = express();
 
 // Set up Prometheus metrics
-const register = new client.Registry();
+const register = new client.Registry();//minor
 client.collectDefaultMetrics({ register });
 
 // Track request duration for monitoring

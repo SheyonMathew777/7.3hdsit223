@@ -59,41 +59,33 @@ pipeline {
     }
 
     stage('Code Quality (SonarQube)') {
+      environment { SCANNER_HOME = tool 'sonar-scanner' }
       steps {
-        sh '''
-          if command -v sonar-scanner >/dev/null 2>&1; then
-            echo "SonarQube scanner found, running analysis..."
-            sonar-scanner -Dsonar.projectKey=sample-node-api -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_TOKEN || echo "SonarQube analysis failed - continuing pipeline"
-          else
-            echo "SonarQube scanner not found - skipping code quality analysis"
-          fi
-        '''
+        withSonarQubeEnv('SonarQubeServer') {
+          sh '''
+            $SCANNER_HOME/bin/sonar-scanner \
+              -Dsonar.projectKey=sample-node-api \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_TOKEN
+          '''
+        }
       }
     }
 
     stage('Quality Gate') {
       steps {
-        sh 'echo "Quality Gate check - SonarQube not configured, skipping"'
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
       }
     }
 
     stage('Security (Snyk + Trivy)') {
       steps {
         sh '''
-          echo "Running security scans..."
-          if command -v snyk >/dev/null 2>&1; then
-            echo "Snyk found, running vulnerability scan..."
-            snyk test --severity-threshold=medium || echo "Snyk scan failed - continuing"
-          else
-            echo "Snyk not found - skipping vulnerability scan"
-          fi
-          
-          if command -v trivy >/dev/null 2>&1; then
-            echo "Trivy found, running security scan..."
-            trivy fs . --severity HIGH,CRITICAL || echo "Trivy scan failed - continuing"
-          else
-            echo "Trivy not found - skipping security scan"
-          fi
+          export SNYK_TOKEN=$SNYK_TOKEN
+          snyk test --severity-threshold=medium || true
+          trivy image $REGISTRY/$APP_NAME:$IMAGE_TAG --severity HIGH,CRITICAL || true
         '''
       }
       post {
@@ -130,7 +122,7 @@ pipeline {
           git push origin "$GIT_TAG" || echo "Tag push failed"
 
           echo "Creating GitHub release..."
-          echo "{ \"tag_name\": \"$GIT_TAG\", \"name\": \"$GIT_TAG\", \"body\": \"Automated release from Jenkins\" }" > rel.json
+          echo "{ \"tag_name\": \"$GIT_TAG\", \"name\": \"$GIT_TAG\", \"body\": \"Automated release from Jenkins - Build #${BUILD_NUMBER}\" }" > rel.json
           curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -d @rel.json https://api.github.com/repos/SheyonMathew777/7.3hdsit223/releases > release.json || echo "GitHub release failed"
         '''
       }

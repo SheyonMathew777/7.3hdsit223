@@ -7,11 +7,10 @@ pipeline {
     SONAR_HOST_URL = 'http://localhost:9000'
     NODE_ENV = 'test'
   }
-  options {
-    timestamps()
-    ansiColor('xterm')
-    buildDiscarder(logRotator(numToKeepStr: '20'))
-  }
+        options {
+            timestamps()
+            buildDiscarder(logRotator(numToKeepStr: '20'))
+        }
   triggers { pollSCM('* * * * *') } // replace with webhook if you want
 
   stages {

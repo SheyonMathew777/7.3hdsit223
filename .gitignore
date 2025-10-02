@@ -127,7 +127,6 @@ Thumbs.db
 *~
 
 # Docker
-.dockerignore
 
 # Monitoring data
 prometheus_data/

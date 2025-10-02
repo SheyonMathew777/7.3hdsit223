@@ -76,14 +76,19 @@ stage('Code Quality (SonarQube)') {
 
               echo "==> Preparing platform-agnostic SonarScanner (no JRE)"
               SCANNER_DIR="$WORKSPACE/.sonar-scanner"
-              GENERIC_ZIP="sonar-scanner-cli-5.0.1.3006.zip"
-              GENERIC_URL="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${GENERIC_ZIP}"
+              ZIP="$WORKSPACE/scanner.zip"
+              URL="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip"
 
-              rm -rf "$SCANNER_DIR"
-              curl -fsSL -o "$WORKSPACE/scanner.zip" "$GENERIC_URL"
-              unzip -q "$WORKSPACE/scanner.zip" -d "$WORKSPACE"
-              mv "$WORKSPACE"/sonar-scanner-*-cli "$SCANNER_DIR"
-              chmod +x "$SCANNER_DIR/bin/sonar-scanner"
+              echo "==> Downloading platform-agnostic SonarScanner"
+              rm -rf "$SCANNER_DIR" "$ZIP"
+              curl -fsSL -o "$ZIP" "$URL"
+              unzip -oq "$ZIP" -d "$WORKSPACE"
+
+              # The extracted dir is like sonar-scanner-5.0.1.3006 (no -cli)
+              EXTRACTED_DIR="$(find "$WORKSPACE" -maxdepth 1 -type d -name 'sonar-scanner-*' ! -name '.sonar-scanner' | head -n1)"
+              [ -d "$EXTRACTED_DIR" ] || { echo "Scanner directory not found after unzip"; ls -la "$WORKSPACE"; exit 1; }
+              mv "$EXTRACTED_DIR" "$SCANNER_DIR"
+              rm -f "$ZIP"
               export PATH="$SCANNER_DIR/bin:$PATH"
 
               echo "==> Checking SonarQube availability at: $SONAR_HOST_URL"

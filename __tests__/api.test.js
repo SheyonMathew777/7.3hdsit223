@@ -52,4 +52,27 @@ describe('API (in-process)', () => {
       })
       .catch(done);
   });
+
+  it('GET /metrics error handling', (done) => {
+    // Mock the register.metrics() to throw an error
+    const originalMetrics = require('prom-client').Registry.prototype.metrics;
+    require('prom-client').Registry.prototype.metrics = function() {
+      return Promise.reject(new Error('Metrics generation failed'));
+    };
+
+    request(app).get('/metrics')
+      .then(res => {
+        expect(res.status).toBe(500);
+        expect(res.text).toBe('Error generating metrics');
+        
+        // Restore original method
+        require('prom-client').Registry.prototype.metrics = originalMetrics;
+        done();
+      })
+      .catch(err => {
+        // Restore original method
+        require('prom-client').Registry.prototype.metrics = originalMetrics;
+        done(err);
+      });
+  });
 });

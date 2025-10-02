@@ -66,51 +66,51 @@ stage('Code Quality (SonarQube)') {
     SONAR_HOST_URL = 'http://localhost:9000'
     PROJECT_KEY    = 'sample-node-api'
   }
-  steps {
-    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-      sh '''
-        set -euxo pipefail
+        steps {
+          withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+            sh '''#!/usr/bin/env bash
+              set -euo pipefail
 
-        # 1) Grab SonarScanner CLI locally (once)
-        SCANNER_DIR=".scanner"
-        SCANNER_BIN="$SCANNER_DIR/bin/sonar-scanner"
-        if [ ! -x "$SCANNER_BIN" ]; then
-          curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -o scanner.zip
-          unzip -q scanner.zip
-          mv sonar-scanner-* "$SCANNER_DIR"
-          rm -f scanner.zip
-        fi
+              # 1) Grab SonarScanner CLI locally (once)
+              SCANNER_DIR=".scanner"
+              SCANNER_BIN="$SCANNER_DIR/bin/sonar-scanner"
+              if [ ! -x "$SCANNER_BIN" ]; then
+                curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -o scanner.zip
+                unzip -q scanner.zip
+                mv sonar-scanner-* "$SCANNER_DIR"
+                rm -f scanner.zip
+              fi
 
-        # 2) Run analysis
-        "$SCANNER_BIN" \
-          -Dsonar.projectKey="$PROJECT_KEY" \
-          -Dsonar.host.url="$SONAR_HOST_URL" \
-          -Dsonar.login="$SONAR_TOKEN" \
-          -Dsonar.sources=. \
-          -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
-          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+              # 2) Run analysis
+              "$SCANNER_BIN" \
+                -Dsonar.projectKey="$PROJECT_KEY" \
+                -Dsonar.host.url="$SONAR_HOST_URL" \
+                -Dsonar.login="$SONAR_TOKEN" \
+                -Dsonar.sources=. \
+                -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
+                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
-        # 3) Read compute engine task info
-        REPORT="$SCANNER_DIR/report-task.txt"
-        CE_TASK_ID="$(grep '^ceTaskId='   "$REPORT" | cut -d= -f2)"
-        # Poll CE task until finished
-        for i in $(seq 1 30); do
-          STATUS="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/ce/task?id=$CE_TASK_ID" \
+              # 3) Read compute engine task info
+              REPORT="$SCANNER_DIR/report-task.txt"
+              CE_TASK_ID="$(grep '^ceTaskId='   "$REPORT" | cut -d= -f2)"
+              # Poll CE task until finished
+              for i in $(seq 1 30); do
+                STATUS="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/ce/task?id=$CE_TASK_ID" \
+                          | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
+                echo "Sonar CE task status: $STATUS"
+                [ "$STATUS" = "FAILED" -o "$STATUS" = "CANCELED" ] && { echo "Sonar task failed"; exit 1; }
+                [ "$STATUS" = "SUCCESS" ] && break
+                sleep 2
+              done
+
+              # 4) Check Quality Gate
+              QG="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$PROJECT_KEY" \
                     | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
-          echo "Sonar CE task status: $STATUS"
-          [ "$STATUS" = "FAILED" -o "$STATUS" = "CANCELED" ] && { echo "Sonar task failed"; exit 1; }
-          [ "$STATUS" = "SUCCESS" ] && break
-          sleep 2
-        done
-
-        # 4) Check Quality Gate
-        QG="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$PROJECT_KEY" \
-              | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
-        echo "Quality Gate: $QG"
-        [ "$QG" = "OK" ] || { echo "Quality Gate failed: $QG"; exit 1; }
-      '''
-    }
-  }
+              echo "Quality Gate: $QG"
+              [ "$QG" = "OK" ] || { echo "Quality Gate failed: $QG"; exit 1; }
+            '''
+          }
+        }
 }
 
 

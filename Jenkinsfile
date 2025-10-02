@@ -113,14 +113,19 @@ pipeline {
     stage('Deploy: Staging (Compose)') {
       steps {
         sh '''
-          echo "Deployment stage - Docker not available, skipping container deployment"
-          echo "Starting Node.js app directly for testing..."
-          npm start &
-          APP_PID=$!
-          sleep 5
-          echo "Testing app health..."
-          curl -fsS http://localhost:3000/health || echo "Health check failed"
-          kill $APP_PID 2>/dev/null || echo "App already stopped"
+          if command -v docker >/dev/null 2>&1; then
+            echo "Using Docker Compose for deploy..."
+            docker compose -f docker-compose.staging.yml down || true
+            docker compose -f docker-compose.staging.yml up -d --build
+            curl -fsS http://localhost:3000/health
+          else
+            echo "Docker not available, local run for verification..."
+            export PORT=3100
+            nohup node server.js >/dev/null 2>&1 & echo $! > .app.pid
+            sleep 3
+            curl -fsS http://localhost:$PORT/health
+            kill $(cat .app.pid) || true
+          fi
         '''
       }
     }
@@ -149,15 +154,15 @@ pipeline {
     stage('Monitoring & Alert Check') {
       steps {
         sh '''
-          echo "Monitoring stage - starting app for metrics testing..."
-          npm start &
-          APP_PID=$!
-          sleep 5
-          echo "Testing metrics endpoint..."
-          curl -fsS http://localhost:3000/metrics | head -n 5 || echo "Metrics endpoint not available"
-          echo "Simulating slow request for alert testing..."
-          curl -fsS http://localhost:3000/simulate/slow || echo "Slow endpoint not available"
-          kill $APP_PID 2>/dev/null || echo "App already stopped"
+          echo "Starting app on a temp port for metrics test..."
+          export PORT=3101
+          nohup node server.js >/dev/null 2>&1 & echo $! > .app.pid
+          sleep 3
+          echo "Metrics smoke:"
+          curl -fsS http://localhost:$PORT/metrics | head -n 5
+          echo "Simulating slow endpoint..."
+          curl -fsS http://localhost:$PORT/simulate/slow || true
+          kill $(cat .app.pid) || true
         '''
       }
     }

@@ -59,42 +59,57 @@ pipeline {
     }
 
 stage('Code Quality (SonarQube)') {
+  environment {
+    SONAR_HOST_URL = 'http://localhost:9000'
+    PROJECT_KEY    = 'sample-node-api'
+  }
   steps {
-    withSonarQubeEnv('SonarQubeServer') {
+    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
       sh '''
-        set -e
-        # Download SonarScanner CLI locally if not present
+        set -euxo pipefail
+
+        # 1) Grab SonarScanner CLI locally (once)
         SCANNER_DIR=".scanner"
         SCANNER_BIN="$SCANNER_DIR/bin/sonar-scanner"
         if [ ! -x "$SCANNER_BIN" ]; then
-          echo "Downloading SonarScanner CLI..."
-          rm -rf "$SCANNER_DIR" scanner.zip
           curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -o scanner.zip
           unzip -q scanner.zip
           mv sonar-scanner-* "$SCANNER_DIR"
           rm -f scanner.zip
         fi
 
-        echo "Running SonarQube scan..."
+        # 2) Run analysis
         "$SCANNER_BIN" \
-          -Dsonar.projectKey=sample-node-api \
+          -Dsonar.projectKey="$PROJECT_KEY" \
           -Dsonar.host.url="$SONAR_HOST_URL" \
           -Dsonar.login="$SONAR_TOKEN" \
           -Dsonar.sources=. \
           -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
           -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+        # 3) Read compute engine task info
+        REPORT="$SCANNER_DIR/report-task.txt"
+        CE_TASK_ID="$(grep '^ceTaskId='   "$REPORT" | cut -d= -f2)"
+        # Poll CE task until finished
+        for i in $(seq 1 30); do
+          STATUS="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/ce/task?id=$CE_TASK_ID" \
+                    | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
+          echo "Sonar CE task status: $STATUS"
+          [ "$STATUS" = "FAILED" -o "$STATUS" = "CANCELED" ] && { echo "Sonar task failed"; exit 1; }
+          [ "$STATUS" = "SUCCESS" ] && break
+          sleep 2
+        done
+
+        # 4) Check Quality Gate
+        QG="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$PROJECT_KEY" \
+              | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
+        echo "Quality Gate: $QG"
+        [ "$QG" = "OK" ] || { echo "Quality Gate failed: $QG"; exit 1; }
       '''
     }
   }
 }
 
-stage('Quality Gate') {
-  steps { 
-    timeout(time: 5, unit: 'MINUTES') { 
-      waitForQualityGate abortPipeline: true 
-    } 
-  }
-}
 
 stage('Security (Snyk + Trivy)') {
   steps {

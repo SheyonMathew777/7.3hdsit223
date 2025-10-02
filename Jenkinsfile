@@ -58,6 +58,10 @@ pipeline {
           npm test -- --ci
           echo "Checking for test reports..."
           ls -la reports/junit/ || echo "No reports directory found"
+          echo "Checking for any XML files..."
+          find . -name "*.xml" -type f || echo "No XML files found"
+          echo "Checking jest-junit version..."
+          npm list jest-junit || echo "jest-junit not found"
           echo "Stopping app..."
           kill $APP_PID 2>/dev/null || echo "App already stopped"
         '''

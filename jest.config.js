@@ -5,6 +5,13 @@ module.exports = {
   coverageDirectory: 'coverage',
   reporters: [
     'default',
-    ['jest-junit', { outputDirectory: 'reports/junit', outputName: 'junit.xml' }]
+    ['jest-junit', { 
+      outputDirectory: 'reports/junit', 
+      outputName: 'junit.xml',
+      classNameTemplate: '{classname}',
+      titleTemplate: '{title}',
+      ancestorSeparator: ' › ',
+      usePathForSuiteName: true
+    }]
   ]
 };

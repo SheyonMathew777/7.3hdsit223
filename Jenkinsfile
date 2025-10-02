@@ -69,7 +69,7 @@ pipeline {
       post {
         always {
           sh 'pkill -f "node server.js" || echo "No Node.js process to kill"'
-          junit 'reports/junit/junit.xml'  // Correct path to match jest-junit output
+          junit 'junit.xml'  // jest-junit creates file in root directory
         }
       }
     }

@@ -44,14 +44,15 @@ pipeline {
 
     stage('Test') {
       steps {
-        // Ensure the app is running for integration tests hitting localhost:3000
-        sh 'docker compose -f docker-compose.staging.yml up -d app || echo "Docker Compose not available - skipping deployment"'
+        // Start the Node.js app for integration tests
+        sh 'npm start &'
+        sh 'sleep 3'  // Wait for app to start
         sh 'npm test -- --ci'
       }
       post {
         always {
-          junit 'reports/junit/*.xml'
-          sh 'docker compose -f docker-compose.staging.yml down || echo "Docker Compose not available"'
+          sh 'pkill -f "node server.js" || echo "No Node.js process to kill"'
+          junit 'junit.xml'  // Updated path to match jest-junit output
         }
       }
     }

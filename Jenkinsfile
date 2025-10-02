@@ -59,66 +59,41 @@ pipeline {
     }
 
 stage('Code Quality (SonarQube)') {
+  environment { SCANNER_HOME = tool 'sonar-scanner' }
   steps {
-    sh '''
-      echo "Running SonarQube scan..."
-      if command -v sonar-scanner >/dev/null 2>&1; then
-        # Check if SonarQube server is available
-        if curl -fsS http://localhost:9000/api/system/status >/dev/null 2>&1; then
-          echo "SonarQube server is available, running scan..."
-          sonar-scanner \
-            -Dsonar.projectKey=sample-node-api \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN \
-            -Dsonar.sources=. \
-            -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info || echo "SonarQube scan completed with warnings"
-        else
-          echo "SonarQube server not available at $SONAR_HOST_URL - skipping scan"
-          echo "Code quality analysis would run here in a real setup"
-        fi
-      else
-        echo "SonarQube scanner not found - skipping code quality analysis"
-      fi
-    '''
+    withSonarQubeEnv('SonarQubeServer') {
+      sh '''
+        echo "Running SonarQube scan..."
+        $SCANNER_HOME/bin/sonar-scanner \
+          -Dsonar.projectKey=sample-node-api \
+          -Dsonar.host.url=$SONAR_HOST_URL \
+          -Dsonar.login=$SONAR_TOKEN \
+          -Dsonar.sources=. \
+          -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
+          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      '''
+    }
   }
 }
 
 stage('Quality Gate') {
-  steps {
-    sh '''
-      echo "Quality Gate check..."
-      echo "In a real setup, this would wait for SonarQube quality gate results"
-      echo "For demo purposes, assuming quality gate passes"
-    '''
+  steps { 
+    timeout(time: 5, unit: 'MINUTES') { 
+      waitForQualityGate abortPipeline: true 
+    } 
   }
 }
 
 stage('Security (Snyk + Trivy)') {
   steps {
-    sh '''
-      echo "Running security scans..."
-      
-      # Snyk scan
-      if command -v snyk >/dev/null 2>&1; then
-        if [ -n "$SNYK_TOKEN" ]; then
-          echo "Running Snyk scan..."
-          snyk test --severity-threshold=medium || echo "Snyk scan completed with findings"
-        else
-          echo "SNYK_TOKEN not set - skipping Snyk scan"
-        fi
-      else
-        echo "Snyk not found - skipping vulnerability scan"
-      fi
-      
-      # Trivy scan
-      if command -v trivy >/dev/null 2>&1; then
-        echo "Running Trivy filesystem scan..."
-        trivy fs . --severity HIGH,CRITICAL || echo "Trivy scan completed with findings"
-      else
-        echo "Trivy not found - skipping security scan"
-      fi
-    '''
+    withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+      sh '''
+        echo "Running security scans..."
+        snyk auth $SNYK_TOKEN >/dev/null 2>&1 || true
+        snyk test --severity-threshold=medium || true
+        trivy fs . --severity HIGH,CRITICAL || true
+      '''
+    }
   }
   post { 
     always { 
@@ -131,23 +106,25 @@ stage('Security (Snyk + Trivy)') {
       steps {
         sh '''
           echo "Deploy stage - testing application deployment..."
-          if command -v docker >/dev/null 2>&1; then
-            echo "Docker available, testing container deployment..."
-            # Test running the built container
-            docker run -d --name test-app -p 3100:3000 local/sample-node-api:$IMAGE_TAG || echo "Container run failed"
-            sleep 3
-            curl -fsS http://localhost:3100/health || echo "Health check failed but continuing"
-            docker stop test-app 2>/dev/null || true
-            docker rm test-app 2>/dev/null || true
-            echo "Container deployment test completed"
-          else
-            echo "Docker not available, using local run for verification..."
-            export PORT=3100
-            nohup node server.js >/dev/null 2>&1 & echo $! > .app.pid
-            sleep 3
-            curl -fsS http://localhost:$PORT/health || echo "Health check failed but continuing"
-            kill $(cat .app.pid) 2>/dev/null || true
+          docker rm -f test-app >/dev/null 2>&1 || true
+          docker run -d --name test-app -p 3100:3000 local/sample-node-api:${BUILD_NUMBER}
+
+          # wait up to 30s for /health to respond
+          READY=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3100/health >/dev/null; then READY=1; break; fi
+            sleep 1
+          done
+
+          if [ -z "$READY" ]; then
+            echo "Health check FAILED"
+            docker logs --tail=200 test-app || true
+            docker rm -f test-app >/dev/null 2>&1 || true
+            exit 1
           fi
+
+          echo "Health check OK"
+          docker rm -f test-app >/dev/null 2>&1 || true
         '''
       }
     }
@@ -160,22 +137,25 @@ stage('Security (Snyk + Trivy)') {
         }
       }
       steps {
-        sh '''
-          echo "Release stage - creating git tag..."
-          VERSION=$(node -p "require('./package.json').version")
-          GIT_TAG="v${VERSION}-${IMAGE_TAG}"
-          echo "Creating tag: $GIT_TAG"
-          git config user.email "ci@example.com"
-          git config user.name "jenkins-ci"
-          git tag -a "$GIT_TAG" -m "Release $GIT_TAG" || echo "Tag creation failed"
-          git push origin "$GIT_TAG" || echo "Tag push failed"
+        withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+          sh '''
+            echo "Release stage - creating git tag..."
+            VERSION=$(node -p "require('./package.json').version")
+            GIT_TAG="v${VERSION}-${BUILD_NUMBER}"
+            echo "Creating tag: $GIT_TAG"
+            git config user.email "ci@example.com"
+            git config user.name "jenkins-ci"
+            git tag -a "$GIT_TAG" -m "Release $GIT_TAG" || true
+            git push https://${GITHUB_TOKEN}@github.com/SheyonMathew777/7.3hdsit223.git "$GIT_TAG"
 
-          echo "Creating GitHub release..."
-          echo "{ \"tag_name\": \"$GIT_TAG\", \"name\": \"$GIT_TAG\", \"body\": \"Automated release from Jenkins - Build #${BUILD_NUMBER}\" }" > rel.json
-          curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -d @rel.json https://api.github.com/repos/SheyonMathew777/7.3hdsit223/releases > release.json || echo "GitHub release failed"
-        '''
+            printf '{"tag_name":"%s","name":"%s","body":"Automated release from Jenkins - Build %s"}' "$GIT_TAG" "$GIT_TAG" "$BUILD_NUMBER" > rel.json
+            curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+                 -H "Accept: application/vnd.github+json" \
+                 -d @rel.json \
+                 https://api.github.com/repos/SheyonMathew777/7.3hdsit223/releases
+          '''
+        }
       }
-      post { always { archiveArtifacts artifacts: 'release.json', allowEmptyArchive: true } }
     }
 
     stage('Monitoring & Alert Check') {

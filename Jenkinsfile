@@ -71,43 +71,59 @@ stage('Code Quality (SonarQube)') {
             sh '''#!/usr/bin/env bash
               set -euo pipefail
 
-              # 1) Grab SonarScanner CLI locally (once)
-              SCANNER_DIR=".scanner"
-              SCANNER_BIN="$SCANNER_DIR/bin/sonar-scanner"
-              if [ ! -x "$SCANNER_BIN" ]; then
-                curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -o scanner.zip
-                unzip -q scanner.zip
-                mv sonar-scanner-* "$SCANNER_DIR"
-                rm -f scanner.zip
-              fi
+              echo "==> Java version on this node:"
+              java -version || { echo "Java not found on PATH. Install a JRE (11/17) and rerun."; exit 1; }
 
-              # 2) Run analysis
-              "$SCANNER_BIN" \
+              echo "==> Preparing platform-agnostic SonarScanner (no JRE)"
+              SCANNER_DIR="$WORKSPACE/.sonar-scanner"
+              GENERIC_ZIP="sonar-scanner-cli-5.0.1.3006.zip"
+              GENERIC_URL="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${GENERIC_ZIP}"
+
+              rm -rf "$SCANNER_DIR"
+              curl -fsSL -o "$WORKSPACE/scanner.zip" "$GENERIC_URL"
+              unzip -q "$WORKSPACE/scanner.zip" -d "$WORKSPACE"
+              mv "$WORKSPACE"/sonar-scanner-*-cli "$SCANNER_DIR"
+              chmod +x "$SCANNER_DIR/bin/sonar-scanner"
+              export PATH="$SCANNER_DIR/bin:$PATH"
+
+              echo "==> Checking SonarQube availability at: $SONAR_HOST_URL"
+              curl -fsS "$SONAR_HOST_URL/api/system/status" | grep -q '"status":"UP"' || {
+                echo "SonarQube is not UP at $SONAR_HOST_URL"
+                exit 1
+              }
+
+              echo "==> Running sonar-scanner"
+              sonar-scanner \
                 -Dsonar.projectKey="$PROJECT_KEY" \
-                -Dsonar.host.url="$SONAR_HOST_URL" \
-                -Dsonar.login="$SONAR_TOKEN" \
                 -Dsonar.sources=. \
-                -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
-                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+                -Dsonar.exclusions="node_modules/**,coverage/**,**/*.test.js,**/__tests__/**" \
+                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                -Dsonar.host.url="$SONAR_HOST_URL" \
+                -Dsonar.login="$SONAR_TOKEN"
 
-              # 3) Read compute engine task info
-              REPORT="$SCANNER_DIR/report-task.txt"
-              CE_TASK_ID="$(grep '^ceTaskId='   "$REPORT" | cut -d= -f2)"
-              # Poll CE task until finished
-              for i in $(seq 1 30); do
-                STATUS="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/ce/task?id=$CE_TASK_ID" \
-                          | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
-                echo "Sonar CE task status: $STATUS"
-                [ "$STATUS" = "FAILED" -o "$STATUS" = "CANCELED" ] && { echo "Sonar task failed"; exit 1; }
-                [ "$STATUS" = "SUCCESS" ] && break
+              echo "==> Waiting for CE task & checking Quality Gate"
+              TASK_FILE=".scannerwork/report-task.txt"
+              CE_URL=$(grep '^ceTaskUrl=' "$TASK_FILE" | cut -d= -f2)
+
+              for i in {1..60}; do
+                json=$(curl -fsS -u "$SONAR_TOKEN:" "$CE_URL")
+                status=$(echo "$json" | sed -n 's/.*"status":"\\([^"]*\\)".*/\\1/p')
+                if [[ "$status" == "SUCCESS" ]]; then
+                  analysisId=$(echo "$json" | sed -n 's/.*"analysisId":"\\([^"]*\\)".*/\\1/p')
+                  break
+                elif [[ "$status" == "FAILED" ]]; then
+                  echo "Compute Engine task FAILED"; exit 1
+                fi
                 sleep 2
               done
 
-              # 4) Check Quality Gate
-              QG="$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$PROJECT_KEY" \
-                    | sed -n 's/.*"status":"\\?\\([A-Z]*\\)\\?".*/\\1/p')"
-              echo "Quality Gate: $QG"
-              [ "$QG" = "OK" ] || { echo "Quality Gate failed: $QG"; exit 1; }
+              [[ -n "${analysisId:-}" ]] || { echo "Timed out waiting for analysis"; exit 1; }
+
+              qg=$(curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/qualitygates/project_status?analysisId=$analysisId" \
+                   | sed -n 's/.*"status":"\\([^"]*\\)".*/\\1/p')
+              echo "Quality Gate: $qg"
+              [[ "$qg" == "OK" ]] || { echo "Quality Gate FAILED"; exit 1; }
+              echo "Quality Gate PASSED"
             '''
           }
         }

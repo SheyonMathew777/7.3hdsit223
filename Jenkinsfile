@@ -44,31 +44,15 @@ pipeline {
 
     stage('Test') {
       steps {
-        // Start the Node.js app for integration tests
+        // Run tests in-process (no background server needed)
         sh '''
-          echo "Starting Node.js app for tests..."
+          echo "Running tests with coverage..."
           mkdir -p reports/junit
-          nohup npm start > app.log 2>&1 &
-          APP_PID=$!
-          echo "App started with PID: $APP_PID"
-          sleep 5
-          echo "Checking if app is running..."
-          ps aux | grep "node server.js" | grep -v grep || echo "App not found in process list"
-          echo "Running tests..."
           npm test -- --ci
-          echo "Checking for test reports..."
-          ls -la reports/junit/ || echo "No reports directory found"
-          echo "Checking for any XML files..."
-          find . -name "*.xml" -type f || echo "No XML files found"
-          echo "Checking jest-junit version..."
-          npm list jest-junit || echo "jest-junit not found"
-          echo "Stopping app..."
-          kill $APP_PID 2>/dev/null || echo "App already stopped"
         '''
       }
       post {
         always {
-          sh 'pkill -f "node server.js" || echo "No Node.js process to kill"'
           junit 'junit.xml'  // jest-junit creates file in root directory
         }
       }

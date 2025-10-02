@@ -3,6 +3,7 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.test.js'],
   collectCoverageFrom: ['app.js'],
   coverageDirectory: 'coverage',
+  coverageThreshold: { global: { lines: 80, statements: 80 } },
   reporters: [
     'default',
     ['jest-junit', { 

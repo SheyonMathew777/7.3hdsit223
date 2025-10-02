@@ -59,15 +59,27 @@ pipeline {
     }
 
 stage('Code Quality (SonarQube)') {
-  environment { SCANNER_HOME = tool 'sonar-scanner' }
   steps {
     withSonarQubeEnv('SonarQubeServer') {
       sh '''
+        set -e
+        # Download SonarScanner CLI locally if not present
+        SCANNER_DIR=".scanner"
+        SCANNER_BIN="$SCANNER_DIR/bin/sonar-scanner"
+        if [ ! -x "$SCANNER_BIN" ]; then
+          echo "Downloading SonarScanner CLI..."
+          rm -rf "$SCANNER_DIR" scanner.zip
+          curl -fsSL https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -o scanner.zip
+          unzip -q scanner.zip
+          mv sonar-scanner-* "$SCANNER_DIR"
+          rm -f scanner.zip
+        fi
+
         echo "Running SonarQube scan..."
-        $SCANNER_HOME/bin/sonar-scanner \
+        "$SCANNER_BIN" \
           -Dsonar.projectKey=sample-node-api \
-          -Dsonar.host.url=$SONAR_HOST_URL \
-          -Dsonar.login=$SONAR_TOKEN \
+          -Dsonar.host.url="$SONAR_HOST_URL" \
+          -Dsonar.login="$SONAR_TOKEN" \
           -Dsonar.sources=. \
           -Dsonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/__tests__/** \
           -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info

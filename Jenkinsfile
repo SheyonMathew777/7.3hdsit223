@@ -97,6 +97,13 @@ stage('Code Quality (SonarQube)') {
                 exit 1
               }
 
+              echo "==> Validating SonarQube token"
+              test -n "${SONAR_TOKEN:-}" || { echo "SONAR_TOKEN is empty"; exit 2; }
+              curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/authentication/validate" | grep -q '"valid":true' || {
+                echo "SonarQube token validation failed"
+                exit 3
+              }
+
               echo "==> Running sonar-scanner"
               sonar-scanner \
                 -Dsonar.projectKey="$PROJECT_KEY" \
@@ -104,7 +111,7 @@ stage('Code Quality (SonarQube)') {
                 -Dsonar.exclusions="node_modules/**,coverage/**,**/*.test.js,**/__tests__/**" \
                 -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
                 -Dsonar.host.url="$SONAR_HOST_URL" \
-                -Dsonar.login="$SONAR_TOKEN"
+                -Dsonar.token="$SONAR_TOKEN"
 
               echo "==> Waiting for CE task & checking Quality Gate"
               TASK_FILE=".scannerwork/report-task.txt"

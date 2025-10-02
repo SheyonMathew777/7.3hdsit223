@@ -46,11 +46,16 @@ pipeline {
       steps {
         // Start the Node.js app for integration tests
         sh '''
-          npm start &
+          echo "Starting Node.js app for tests..."
+          nohup npm start > app.log 2>&1 &
           APP_PID=$!
-          sleep 5
           echo "App started with PID: $APP_PID"
+          sleep 5
+          echo "Checking if app is running..."
+          ps aux | grep "node server.js" | grep -v grep || echo "App not found in process list"
+          echo "Running tests..."
           npm test -- --ci
+          echo "Stopping app..."
           kill $APP_PID 2>/dev/null || echo "App already stopped"
         '''
       }
